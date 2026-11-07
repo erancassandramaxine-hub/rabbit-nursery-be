@@ -9,6 +9,9 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
+# Database backups
+*.sql
+
 # Build / coverage
 dist/
 build/
@@ -19,4 +22,5 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
 

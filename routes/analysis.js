@@ -1,9 +1,8 @@
 const express = require('express');
-const { WeightMotionData } = require('../database');
+const { prisma } = require('../database');
 
 const router = express.Router();
 
-// If no reading arrives for 30s the mother has left (6 missed 5-second posts)
 const VISIT_GAP_MS = 30 * 1000;
 
 function formatDuration(seconds) {
@@ -40,8 +39,7 @@ function buildVisitStats(visitGroups) {
     const start = new Date(group[0].timestamp);
     const end = new Date(group[group.length - 1].timestamp);
     const durationSeconds = Math.max(0, Math.round((end - start) / 1000));
-    const avgWeight =
-      group.reduce((sum, r) => sum + r.weight, 0) / group.length;
+    const avgWeight = group.reduce((sum, r) => sum + r.weight, 0) / group.length;
 
     return {
       visitNumber: i + 1,
@@ -58,38 +56,27 @@ function buildVisitStats(visitGroups) {
 function buildSummary(visits) {
   if (visits.length === 0) {
     return {
-      totalVisits: 0,
-      totalNursingSeconds: 0,
-      totalNursingTime: '0s',
-      averageVisitSeconds: 0,
-      averageVisitDuration: '0s',
-      averageWeightGrams: 0,
-      longestVisitSeconds: 0,
-      longestVisitDuration: '0s',
-      shortestVisitSeconds: 0,
-      shortestVisitDuration: '0s',
-      averageGapBetweenVisitsSeconds: null,
-      averageGapBetweenVisits: null,
+      totalVisits: 0, totalNursingSeconds: 0, totalNursingTime: '0s',
+      averageVisitSeconds: 0, averageVisitDuration: '0s', averageWeightGrams: 0,
+      longestVisitSeconds: 0, longestVisitDuration: '0s',
+      shortestVisitSeconds: 0, shortestVisitDuration: '0s',
+      averageGapBetweenVisitsSeconds: null, averageGapBetweenVisits: null,
     };
   }
 
   const totalNursingSeconds = visits.reduce((s, v) => s + v.durationSeconds, 0);
   const avgVisitSeconds = Math.round(totalNursingSeconds / visits.length);
-  const avgWeight =
-    visits.reduce((s, v) => s + v.averageWeightGrams, 0) / visits.length;
+  const avgWeight = visits.reduce((s, v) => s + v.averageWeightGrams, 0) / visits.length;
 
   const durations = visits.map((v) => v.durationSeconds);
   const longest = Math.max(...durations);
   const shortest = Math.min(...durations);
 
-  // Gaps between visits (end of one → start of next)
   let avgGapSeconds = null;
   if (visits.length > 1) {
     const gaps = [];
     for (let i = 1; i < visits.length; i++) {
-      gaps.push(
-        Math.round((new Date(visits[i].start) - new Date(visits[i - 1].end)) / 1000)
-      );
+      gaps.push(Math.round((new Date(visits[i].start) - new Date(visits[i - 1].end)) / 1000));
     }
     avgGapSeconds = Math.round(gaps.reduce((s, g) => s + g, 0) / gaps.length);
   }
@@ -121,12 +108,10 @@ function buildHourlyDistribution(visits) {
 }
 
 async function analyzeCage(cage, from, to) {
-  const readings = await WeightMotionData.find({
-    cage,
-    timestamp: { $gte: from, $lte: to },
-  })
-    .sort({ timestamp: 1 })
-    .lean();
+  const readings = await prisma.weightData.findMany({
+    where: { cage, timestamp: { gte: from, lte: to } },
+    orderBy: { timestamp: 'asc' },
+  });
 
   const visitGroups = groupIntoVisits(readings);
   const visits = buildVisitStats(visitGroups);
@@ -137,8 +122,6 @@ async function analyzeCage(cage, from, to) {
 }
 
 // GET /api/analysis/maternal?cage=1&from=<ISO>&to=<ISO>
-// cage is optional; omit to get all cages.
-// from/to default to the last 24 hours.
 router.get('/maternal', async (req, res) => {
   const to = req.query.to ? new Date(req.query.to) : new Date();
   const from = req.query.from
@@ -164,14 +147,15 @@ router.get('/maternal', async (req, res) => {
       return res.json({ period, ...result });
     }
 
-    // All cages that have data in this period
-    const distinctCages = await WeightMotionData.distinct('cage', {
-      timestamp: { $gte: from, $lte: to },
+    const distinctRows = await prisma.weightData.findMany({
+      select: { cage: true },
+      distinct: ['cage'],
+      where: { timestamp: { gte: from, lte: to } },
+      orderBy: { cage: 'asc' },
     });
+    const distinctCages = distinctRows.map((r) => r.cage);
 
-    const cages = await Promise.all(
-      distinctCages.sort().map((cage) => analyzeCage(cage, from, to))
-    );
+    const cages = await Promise.all(distinctCages.map((cage) => analyzeCage(cage, from, to)));
 
     return res.json({ period, cages });
   } catch (err) {

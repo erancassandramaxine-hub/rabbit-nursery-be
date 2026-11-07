@@ -1,5 +1,5 @@
 const express = require('express');
-const { WeightMotionData } = require('../database');
+const { prisma } = require('../database');
 const { sensorApiKeyRequired } = require('../middleware/auth');
 
 const router = express.Router();
@@ -11,10 +11,6 @@ function validateCagePayload(obj, name) {
 }
 
 // POST /api/data/weight
-// Body: {
-//   cage1?: { weight: number },
-//   cage2?: { weight: number }
-// }
 router.post('/', sensorApiKeyRequired, async (req, res) => {
   const { cage1, cage2 } = req.body;
 
@@ -30,13 +26,13 @@ router.post('/', sensorApiKeyRequired, async (req, res) => {
 
   try {
     const saves = [];
-    if (cage1) saves.push(new WeightMotionData({ cage: 1, weight: cage1.weight }).save());
-    if (cage2) saves.push(new WeightMotionData({ cage: 2, weight: cage2.weight }).save());
+    if (cage1) saves.push(prisma.weightData.create({ data: { cage: 1, weight: cage1.weight } }));
+    if (cage2) saves.push(prisma.weightData.create({ data: { cage: 2, weight: cage2.weight } }));
 
     const docs = await Promise.all(saves);
     const response = {};
-    if (cage1) response.cage1 = { id: docs[0]._id, timestamp: docs[0].timestamp };
-    if (cage2) response.cage2 = { id: docs[cage1 ? 1 : 0]._id, timestamp: docs[cage1 ? 1 : 0].timestamp };
+    if (cage1) response.cage1 = { id: docs[0].id, timestamp: docs[0].timestamp };
+    if (cage2) response.cage2 = { id: docs[cage1 ? 1 : 0].id, timestamp: docs[cage1 ? 1 : 0].timestamp };
 
     return res.status(201).json(response);
   } catch (err) {

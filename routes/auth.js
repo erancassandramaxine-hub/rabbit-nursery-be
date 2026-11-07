@@ -2,14 +2,13 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { AdminUser, User } = require('../database');
+const { prisma } = require('../database');
 const { JWT_SECRET, authRequired } = require('../middleware/auth');
 const { sendResetCode } = require('../middleware/mailer');
 
 const router = express.Router();
 
 // POST /api/auth/login
-// Checks AdminUser first, then User. Role-specific conditions applied per collection.
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -18,19 +17,13 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    let account = await AdminUser.findOne({ email });
-    let role = 'admin';
-
-    if (!account) {
-      account = await User.findOne({ email });
-      role = 'user';
-    }
+    const account = await prisma.user.findUnique({ where: { email } });
 
     if (!account) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    if (role === 'user' && account.status === 'inactive') {
+    if (account.role === 'user' && account.status === 'inactive') {
       return res.status(403).json({ error: 'Account is inactive' });
     }
 
@@ -39,8 +32,9 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    const { role } = account;
     const token = jwt.sign(
-      { id: account._id, email: account.email, role },
+      { id: account.id, email: account.email, role },
       JWT_SECRET,
       { expiresIn: '12h' }
     );
@@ -65,19 +59,19 @@ router.post('/forgot-password', async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ email });
+    const user = await prisma.user.findFirst({ where: { email, role: 'user' } });
 
-    // Always respond the same way to avoid exposing which emails are registered
     if (!user) {
       return res.json({ message: 'If that email exists, a reset code has been sent' });
     }
 
     const code = crypto.randomInt(100000, 999999).toString();
-    const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    const expiry = new Date(Date.now() + 15 * 60 * 1000);
 
-    user.resetCode = code;
-    user.resetCodeExpiry = expiry;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { resetCode: code, resetCodeExpiry: expiry },
+    });
 
     await sendResetCode(email, user.name, code);
 
@@ -97,7 +91,7 @@ router.post('/reset-password', async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ email });
+    const user = await prisma.user.findFirst({ where: { email, role: 'user' } });
 
     if (!user || !user.resetCode || !user.resetCodeExpiry) {
       return res.status(400).json({ error: 'Invalid or expired reset code' });
@@ -111,11 +105,15 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'Invalid or expired reset code' });
     }
 
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
-    user.mustResetPassword = false;
-    user.resetCode = null;
-    user.resetCodeExpiry = null;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await bcrypt.hash(newPassword, 10),
+        mustResetPassword: false,
+        resetCode: null,
+        resetCodeExpiry: null,
+      },
+    });
 
     res.json({ message: 'Password reset successfully' });
   } catch (err) {
@@ -137,7 +135,7 @@ router.post('/change-password', authRequired, async (req, res) => {
   }
 
   try {
-    const user = await User.findById(req.user.id);
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -147,9 +145,13 @@ router.post('/change-password', authRequired, async (req, res) => {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
-    user.mustResetPassword = false;
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await bcrypt.hash(newPassword, 10),
+        mustResetPassword: false,
+      },
+    });
 
     res.json({ message: 'Password changed successfully' });
   } catch (err) {

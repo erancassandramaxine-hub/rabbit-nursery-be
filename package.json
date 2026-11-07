@@ -1,9 +1,15 @@
 {
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
   },
-  "dependencies": {
+"dependencies": {
+    "@prisma/client": "^6.19.3",
     "@serialport/parser-readline": "^13.0.0",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
@@ -11,11 +17,11 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.2",
     "mailtrap": "^4.7.0",
-    "mongoose": "^9.3.3",
     "nodemailer": "^9.0.3",
     "serialport": "^13.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "prisma": "^6.19.3"
   }
 }

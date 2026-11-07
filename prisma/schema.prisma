@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  admin
+  user
+}
+
+enum UserStatus {
+  active
+  inactive
+}
+
+// Unified accounts table for both admin and regular users (discriminated by role).
+model User {
+  id                Int        @id @default(autoincrement())
+  email             String     @unique
+  passwordHash      String
+  name              String     @default("")
+  role              Role       @default(user)
+  status            UserStatus @default(active)
+  mustResetPassword Boolean    @default(true)
+  resetCode         String?
+  resetCodeExpiry   DateTime?
+  createdAt         DateTime   @default(now())
+
+  @@map("users")
+}
+
+model SensorData {
+  id          Int      @id @default(autoincrement())
+  cage        Int
+  temperature Float
+  humidity    Float
+  samples     Int?
+  timestamp   DateTime @default(now())
+
+  @@index([cage, timestamp])
+  @@map("sensor_data")
+}
+
+model WeightData {
+  id        Int      @id @default(autoincrement())
+  cage      Int
+  weight    Float
+  timestamp DateTime @default(now())
+
+  @@index([cage, timestamp])
+  @@map("weight_data")
+}
+
+// Singleton row — only one record ever exists.
+model ThresholdSettings {
+  id                       Int      @id @default(autoincrement())
+  temperatureThresholdDown Float    @default(0)
+  temperatureThresholdUp   Float    @default(0)
+  weightThresholdGrams     Float    @default(0)
+  updatedAt                DateTime @default(now()) @updatedAt
+
+  @@map("threshold_settings")
+}
+
+model ControlStatus {
+  id        Int      @id @default(autoincrement())
+  cage      Int
+  fan       Boolean
+  heater    Boolean
+  timestamp DateTime @default(now())
+
+  @@index([cage, timestamp])
+  @@map("control_status")
+}

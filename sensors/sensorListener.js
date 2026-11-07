@@ -2,7 +2,7 @@ const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const sensorConfig = require('../config/sensorConfig');
 
-function initSensorListener(SensorData, WeightMotionData, options = {}) {
+function initSensorListener(prisma, options = {}) {
   if (!sensorConfig.isControllerConnected) {
     return { close: () => {} };
   }
@@ -35,12 +35,12 @@ function initSensorListener(SensorData, WeightMotionData, options = {}) {
       return;
     }
 
-    const { h, t, w, sensor } = parseData;
+    const { h, t, w } = parseData;
 
-    handleConditionalWeightSave({ w, sensor });
+    handleConditionalWeightSave({ w });
 
     if (!isNaN(h) && !isNaN(t)) {
-      dataBuffer.push({ h, t, sensor });
+      dataBuffer.push({ h, t });
 
       if (Date.now() - lastSaveTime >= saveIntervalMs) {
         saveAverageToDB();
@@ -51,20 +51,18 @@ function initSensorListener(SensorData, WeightMotionData, options = {}) {
   async function saveAverageToDB() {
     if (dataBuffer.length === 0) return;
 
-    const avgH = (dataBuffer.reduce((a, b) => a + b.h, 0) / dataBuffer.length).toFixed(2);
-    const avgT = (dataBuffer.reduce((a, b) => a + b.t, 0) / dataBuffer.length).toFixed(2);
-
-    const latestSensor =
-      [...dataBuffer].reverse().find((item) => typeof item.sensor === 'string' && item.sensor.trim())?.sensor
-      || sensorConfig.sensorId;
+    const avgH = parseFloat((dataBuffer.reduce((a, b) => a + b.h, 0) / dataBuffer.length).toFixed(2));
+    const avgT = parseFloat((dataBuffer.reduce((a, b) => a + b.t, 0) / dataBuffer.length).toFixed(2));
 
     try {
-      await new SensorData({
-        cage: sensorConfig.cage,
-        humidity: parseFloat(avgH),
-        temperature: parseFloat(avgT),
-        samples: dataBuffer.length,
-      }).save();
+      await prisma.sensorData.create({
+        data: {
+          cage: sensorConfig.cage,
+          humidity: avgH,
+          temperature: avgT,
+          samples: dataBuffer.length,
+        },
+      });
 
       console.log(`[DB] Saved 5-min average: ${avgT}°C`);
       dataBuffer = [];
@@ -74,9 +72,7 @@ function initSensorListener(SensorData, WeightMotionData, options = {}) {
     }
   }
 
-  async function handleConditionalWeightSave({ w, sensor }) {
-    if (!WeightMotionData) return;
-
+  async function handleConditionalWeightSave({ w }) {
     const weight = Number(w);
     const now = Date.now();
 
@@ -94,10 +90,9 @@ function initSensorListener(SensorData, WeightMotionData, options = {}) {
     if (now - lastConditionalSaveTime < conditionalSaveIntervalMs) return;
 
     try {
-      await new WeightMotionData({
-        cage: sensorConfig.cage,
-        weight,
-      }).save();
+      await prisma.weightData.create({
+        data: { cage: sensorConfig.cage, weight },
+      });
 
       lastConditionalSaveTime = now;
       console.log(`[DB] Saved weight snapshot: ${weight}g`);

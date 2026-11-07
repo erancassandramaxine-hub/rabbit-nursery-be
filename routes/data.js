@@ -1,5 +1,5 @@
 const express = require('express');
-const { SensorData } = require('../database');
+const { prisma } = require('../database');
 const { sensorApiKeyRequired } = require('../middleware/auth');
 
 const router = express.Router();
@@ -12,10 +12,6 @@ function validateCagePayload(obj, name) {
 }
 
 // POST /api/data/temperature-humidity
-// Body: {
-//   cage1: { temperature: number, humidity: number, samples?: number },
-//   cage2: { temperature: number, humidity: number, samples?: number }
-// }
 router.post('/temperature-humidity', sensorApiKeyRequired, async (req, res) => {
   const { cage1, cage2 } = req.body;
 
@@ -27,28 +23,34 @@ router.post('/temperature-humidity', sensorApiKeyRequired, async (req, res) => {
 
   try {
     const saves = [
-      new SensorData({
-        cage: 1,
-        temperature: cage1.temperature,
-        humidity: cage1.humidity,
-        ...(typeof cage1.samples === 'number' && { samples: cage1.samples }),
-      }).save(),
+      prisma.sensorData.create({
+        data: {
+          cage: 1,
+          temperature: cage1.temperature,
+          humidity: cage1.humidity,
+          ...(typeof cage1.samples === 'number' && { samples: cage1.samples }),
+        },
+      }),
     ];
 
     if (cage2) {
-      saves.push(new SensorData({
-        cage: 2,
-        temperature: cage2.temperature,
-        humidity: cage2.humidity,
-        ...(typeof cage2.samples === 'number' && { samples: cage2.samples }),
-      }).save());
+      saves.push(
+        prisma.sensorData.create({
+          data: {
+            cage: 2,
+            temperature: cage2.temperature,
+            humidity: cage2.humidity,
+            ...(typeof cage2.samples === 'number' && { samples: cage2.samples }),
+          },
+        })
+      );
     }
 
     const [doc1, doc2] = await Promise.all(saves);
 
     return res.status(201).json({
-      cage1: { id: doc1._id, timestamp: doc1.timestamp },
-      ...(doc2 && { cage2: { id: doc2._id, timestamp: doc2.timestamp } }),
+      cage1: { id: doc1.id, timestamp: doc1.timestamp },
+      ...(doc2 && { cage2: { id: doc2.id, timestamp: doc2.timestamp } }),
     });
   } catch (err) {
     console.error('Error saving sensor data:', err);
